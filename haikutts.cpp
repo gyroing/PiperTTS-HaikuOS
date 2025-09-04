@@ -133,34 +133,60 @@ HaikuttsApp::HaikuttsApp(int argc, char** argv) : m_speaker_id(0) {
 }
 
 void HaikuttsApp::parse_arguments() {
-    if (m_args.size() > 1 && (m_args[1] == "-h" || m_args[1] == "--help")) {
-        print_help();
-        exit(0);
-    }
-    if (m_args.size() < 3) {
-        throw std::runtime_error("Invalid usage. Use -h for help.");
-    }
-
-    m_model_dir = m_args[1];
-    m_speaker_id = std::stoi(m_args[2]);
-
-    std::string model_name = find_model_name_from_dir(m_model_dir);
-
-    int option_start_index = 3;
-    if (m_args.size() > 3 && m_args[3][0] != '-') {
-       m_espeak_lang_override = m_args[3];
-       option_start_index = 4;
+    // ابتدا درخواست راهنما را بررسی کن
+    for (size_t i = 1; i < m_args.size(); ++i) {
+        if (m_args[i] == "-h" || m_args[i] == "--help") {
+            print_help();
+            exit(0);
+        }
     }
 
-    std::string config_path = m_model_dir + "/" + model_name + "_config.txt";
+    // متغیرهای موقت برای پردازش آرگومان‌ها
+    std::string model_path = "/boot/home/config/non-packaged/data/HaikuTTS/models/"; // <<<< مسیر پیش‌فرض اصلاح شد
+    std::string model_name = "";
+    bool model_name_provided = false;
+    
+    // مقدار پیش‌فرض برای شناسه گوینده در سازنده کلاس تنظیم شده است
+
+    // حلقه برای پردازش آپشن‌ها
+    for (size_t i = 1; i < m_args.size(); ++i) {
+        std::string arg = m_args[i];
+        if ((arg == "-m" || arg == "--model") && i + 1 < m_args.size()) {
+            model_name = m_args[++i];
+            model_name_provided = true;
+        } else if ((arg == "-p" || arg == "--path") && i + 1 < m_args.size()) {
+            model_path = m_args[++i];
+        } else if ((arg == "-s" || arg == "--speaker_id") && i + 1 < m_args.size()) {
+            m_speaker_id = std::stoi(m_args[++i]);
+        } else if ((arg == "-l" || arg == "--lang") && i + 1 < m_args.size()) {
+            m_espeak_lang_override = m_args[++i];
+        } else if ((arg == "-t" || arg == "--text") && i + 1 < m_args.size()) {
+            m_text_arg = m_args[++i];
+        } else if ((arg == "-o" || arg == "--output") && i + 1 < m_args.size()) {
+            m_outfile = m_args[++i];
+        } else if ((arg == "-f" || arg == "--file") && i + 1 < m_args.size()) {
+            m_infile = m_args[++i];
+        }
+    }
+
+    // بررسی وجود آرگومان اجباری
+    if (!model_name_provided) {
+        throw std::runtime_error("Mandatory argument -m (--model) is missing. Use -h for help.");
+    }
+
+    // ساخت مسیر کامل دایرکتوری مدل
+    if (!model_path.empty() && model_path.back() == '/') {
+        m_model_dir = model_path + model_name;
+    } else {
+        m_model_dir = model_path + "/" + model_name;
+    }
+
+    // ادامه منطق تنظیمات برنامه بدون تغییر
+    std::string model_name_base = find_model_name_from_dir(m_model_dir);
+    std::string config_path = m_model_dir + "/" + model_name_base + "_config.txt";
     parse_config(config_path);
-
-    for (size_t i = option_start_index; i < m_args.size(); ++i) {
-        if ((m_args[i] == "-t" || m_args[i] == "--text") && i + 1 < m_args.size()) { m_text_arg = m_args[++i]; } 
-        else if ((m_args[i] == "-o" || m_args[i] == "--output") && i + 1 < m_args.size()) { m_outfile = m_args[++i]; }
-        else if ((m_args[i] == "-f" || m_args[i] == "--file") && i + 1 < m_args.size()) { m_infile = m_args[++i]; }
-    }
 }
+
 
 int HaikuttsApp::run() {
     parse_arguments();
@@ -242,32 +268,34 @@ int HaikuttsApp::run() {
 
 void HaikuttsApp::print_help() {
     std::cout << R"(
-Usage: haikutts <model_dir> <speaker_id> [OPTIONS] [espeak_lang_override]
+Usage: haikutts -m <model_name> [OPTIONS]
 
 A command-line Text-to-Speech (TTS) program for the Haiku OS using Piper NCNN models.
 The program automatically detects the model configuration from the specified directory.
 Input text is read with the following priority: -t > -f > stdin.
 
-## Arguments:
-  <model_dir>             Path to the directory containing all files for a single model
-                          (e.g., *.ncnn.param, *_config.txt).
-
-  <speaker_id>            The integer ID of the speaker/voice to use. For single-speaker
-                          models, this is typically 0.
-
-  [espeak_lang_override]  (Optional) Override the espeak voice used for phoneme generation
-                          (e.g., "fr-fr"). If not provided, the "espeak_voice" value
-                          from the config file is used.
+## Mandatory Argument:
+  -m, --model <model_name>  The name of the model directory to use.
 
 ## Options:
-  -t, --text "..."        The text string to synthesize. Highest priority input.
+  -p, --path <path>         Path to the base directory containing model folders.
+                            (Default: /boot/home/config/non-packaged/data/HaikuTTS/models/)
 
-  -f, --file <path>       Read input text from a UTF-8 file.
+  -s, --speaker_id <id>     The integer ID of the speaker/voice to use.
+                            (Default: 0).
 
-  -o, --output <path>     Path to save the output as a WAV file. If omitted, the
-                          synthesized audio will be played directly.
+  -l, --lang <lang_code>    Override the espeak voice used for phoneme generation
+                            (e.g., "fr-fr"). If not provided, the "espeak_voice" value
+                            from the config file is used.
 
-  -h, --help              Show this help message and exit.
+  -t, --text "..."          The text string to synthesize. Highest priority input.
+
+  -f, --file <path>         Read input text from a UTF-8 file.
+
+  -o, --output <path>       Path to save the output as a WAV file. If omitted, the
+                            synthesized audio will be played directly.
+
+  -h, --help                Show this help message and exit.
 
 --------------------------------------------------------------------------------
 
@@ -284,7 +312,7 @@ Input text is read with the following priority: -t > -f > stdin.
     ```bash
     git clone [https://github.com/OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl)
     cd piper1-gpl
-    git checkout 113931937cf235fc8all1afd1ca4be209bc6919bc7
+    git checkout 113931937cf235fc8a11afd1ca4be209bc6919bc7
     ```
 
 2.  **Apply the necessary patch:**
@@ -323,6 +351,7 @@ Input text is read with the following priority: -t > -f > stdin.
 * **GitHub:** https://github.com/gyroing
 )" << std::endl;
 }
+
 
 std::string HaikuttsApp::find_model_name_from_dir(const std::string& model_dir) {
     DIR *dir = opendir(model_dir.c_str());
