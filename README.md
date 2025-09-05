@@ -1,4 +1,4 @@
-# PiperTTS for Haiku BAsed on NCNN Models
+# PiperTTS for Haiku Based on NCNN Models
 Natural human voice  offline tts (piper tts)
 Usage: pipertts -m <model_name> [OPTIONS]
 
