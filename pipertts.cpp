@@ -142,7 +142,7 @@ void HaikuttsApp::parse_arguments() {
     }
 
     // متغیرهای موقت برای پردازش آرگومان‌ها
-    std::string model_path = "/boot/home/config/non-packaged/data/piperncnn/models/"; // <<<< مسیر پیش‌فرض اصلاح شد
+    std::string model_path = "/boot/home/config/non-packaged/data/pipertts/models/"; // <<<< مسیر پیش‌فرض اصلاح شد
     std::string model_name = "";
     bool model_name_provided = false;
     
@@ -279,7 +279,7 @@ Input text is read with the following priority: -t > -f > stdin.
 
 ## Options:
   -p, --path <path>         Path to the base directory containing model folders.
-                            (Default: /boot/home/config/non-packaged/data/piperncnn/models/)
+                            (Default: /boot/home/config/non-packaged/data/pipertts/models/)
 
   -s, --speaker_id <id>     The integer ID of the speaker/voice to use.
                             (Default: 0).
