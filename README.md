@@ -1,6 +1,6 @@
 # PiperTTS for Haiku Based on NCNN Models
 Natural human voice  offline tts (piper tts)
-Usage: pipertts -m <model_name> [OPTIONS]
+Usage:  ** pipertts -m <model_name> [OPTIONS] **
 
 A command-line Text-to-Speech (TTS) program for the Haiku OS using Piper NCNN models.
 The program automatically detects the model configuration from the specified directory.
