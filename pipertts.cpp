@@ -455,11 +455,11 @@ Input text is read with the following priority: -t > -f > stdin.
     # Replace with your actual file
     python export_ncnn.py (language code).ckpt (e.g., en.ckpt, fa.ckpt, ...)
     ```
-
+8.  **The usable converted models can be downloaded from the following link:**
+    * https://huggingface.co/gyroing/PiperTTS-NCNN-Models/tree/main
 --------------------------------------------------------------------------------
 
 **Created by:** gyroing (Amir Hossein Navabi)
-* **Hugging Face:** https://huggingface.co/gyroing
 * **GitHub:** https://github.com/gyroing
 )" << std::endl;
 }
