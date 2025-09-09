@@ -21,6 +21,7 @@
 #include <cctype>     // For character handling functions
 #include <dirent.h>   // For directory access (opendir, readdir)
 #include <memory>     // For smart pointers (std::unique_ptr)
+#include <filesystem> // For modern path manipulation
 
 // Haiku OS specific headers
 #include <SoundPlayer.h> // For the native Haiku audio playback API
@@ -228,7 +229,7 @@ void PiperttsApp::parse_arguments() {
     }
 
     // Default path for models on Haiku.
-    std::string model_path = "/boot/home/config/non-packaged/data/pipertts/models/";
+    std::string model_path_str = "/boot/home/config/non-packaged/data/pipertts/models/";
     std::string model_name = "";
     bool model_name_provided = false;
     
@@ -239,7 +240,7 @@ void PiperttsApp::parse_arguments() {
             model_name = m_args[++i];
             model_name_provided = true;
         } else if ((arg == "-p" || arg == "--path") && i + 1 < m_args.size()) {
-            model_path = m_args[++i];
+            model_path_str = m_args[++i];
         } else if ((arg == "-s" || arg == "--speaker_id") && i + 1 < m_args.size()) {
             m_speaker_id = std::stoi(m_args[++i]);
         } else if ((arg == "-l" || arg == "--lang") && i + 1 < m_args.size()) {
@@ -259,11 +260,9 @@ void PiperttsApp::parse_arguments() {
     }
 
     // Construct the full path to the model directory.
-    if (!model_path.empty() && model_path.back() == '/') {
-        m_model_dir = model_path + model_name;
-    } else {
-        m_model_dir = model_path + "/" + model_name;
-    }
+    std::filesystem::path model_base_path(model_path_str);
+    std::filesystem::path final_model_path = model_base_path / model_name;
+    m_model_dir = final_model_path.string();
 
     // Find the model's configuration file and parse it.
     std::string model_name_base = find_model_name_from_dir(m_model_dir);
@@ -284,10 +283,8 @@ int PiperttsApp::run() {
     std::string final_espeak_voice = m_espeak_lang_override.empty() ? m_espeak_voice : m_espeak_lang_override;
 
     // 3. Prepare for output: either a WAV file writer or the Haiku BSoundPlayer.
-    // Use std::unique_ptr for WavWriter for automatic and safer memory management.
     std::unique_ptr<WavWriter> writer = nullptr; 
-    // BSoundPlayer is managed with a raw pointer as is common with Haiku APIs.
-    BSoundPlayer* player = nullptr;
+    std::unique_ptr<BSoundPlayer> player = nullptr;
 
     if (!m_outfile.empty()) {
         // If an output file is specified, create a WavWriter.
@@ -301,8 +298,9 @@ int PiperttsApp::run() {
         format.format = media_raw_audio_format::B_AUDIO_SHORT;
         format.byte_order = B_MEDIA_LITTLE_ENDIAN; 
         format.buffer_size = 4096;
+        
         // Create a new BSoundPlayer instance, passing `this` app object as the "cookie".
-        player = new BSoundPlayer(&format, "pipertts", FillBuffer, NULL, this);
+        player = std::make_unique<BSoundPlayer>(&format, "pipertts", FillBuffer, nullptr, this);
         player->Start();
         player->SetHasData(true);
     }
@@ -368,7 +366,7 @@ int PiperttsApp::run() {
             usleep(50000); // Wait before checking again.
         }
         player->Stop();
-        delete player;
+        // No need to call 'delete player', std::unique_ptr handles it automatically.
     }
     return 0;
 }
@@ -416,7 +414,6 @@ Input text is read with the following priority: -t > -f > stdin.
 **References:**
 * https://github.com/nihui/ncnn-android-piper
 * https://github.com/OHF-Voice/piper1-gpl
-* https://huggingface.co/datasets/rhasspy/piper-checkpoints
 
 **Steps to convert Piper checkpoints to NCNN models:**
 
@@ -456,7 +453,7 @@ Input text is read with the following priority: -t > -f > stdin.
     python export_ncnn.py (language code).ckpt (e.g., en.ckpt, fa.ckpt, ...)
     ```
 8.  **The usable converted models can be downloaded from the following link:**
-    * https://huggingface.co/gyroing/PiperTTS-NCNN-Models/tree/main
+    https://huggingface.co/gyroing/PiperTTS-NCNN-Models/tree/main
 --------------------------------------------------------------------------------
 
 **Created by:** gyroing (Amir Hossein Navabi)
