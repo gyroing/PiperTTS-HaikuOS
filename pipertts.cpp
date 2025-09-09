@@ -4,7 +4,7 @@
 // A command-line Text-to-Speech (TTS) application for the Haiku operating system.
 // It uses Piper NCNN models for speech synthesis and the native Haiku SoundPlayer
 // API for audio playback. It relies on an external `espeak` executable for
-// phoneme generation.
+// phoneme generation. (GYROING)
 // ============================================================================
 
 // C++ Standard Library Headers
@@ -31,6 +31,8 @@
 
 // Piper NCNN TTS engine header
 #include "piper_ncnn.h"
+// Argument parsing library
+#include "cxxopts.hpp"
 
 // ============================================================================
 // Helper Classes
@@ -176,7 +178,8 @@ public:
 
 private:
     // Member variables to store application state and configuration
-    std::vector<std::string> m_args; // Raw command-line arguments
+    int m_argc;
+    char** m_argv;
     std::string m_model_dir;         // Full path to the model directory
     int m_speaker_id;                // Speaker ID for multi-speaker models
     std::string m_text_arg;          // Text provided via -t argument
@@ -210,64 +213,63 @@ private:
 // Implementation of PiperttsApp methods
 // ============================================================================
 
-PiperttsApp::PiperttsApp(int argc, char** argv) : m_speaker_id(0) {
-    if (argc > 0) {
-        m_args.assign(argv, argv + argc);
-    }
+PiperttsApp::PiperttsApp(int argc, char** argv) 
+    : m_argc(argc), m_argv(argv), m_speaker_id(0) {
+    // This constructor now only stores argc and argv for later use.
 }
 
 /**
  * @brief Parses command-line arguments and configures the application member variables.
  */
 void PiperttsApp::parse_arguments() {
-    // First, check if the user is asking for help.
-    for (size_t i = 1; i < m_args.size(); ++i) {
-        if (m_args[i] == "-h" || m_args[i] == "--help") {
+    try {
+        cxxopts::Options options("pipertts", 
+            "A command-line TTS for Haiku OS using Piper NCNN models.\n"
+            "The program automatically detects the model configuration from the specified directory.\n"
+            "Input text is read with the following priority: -t > -f > stdin.");
+
+        options.add_options()
+            ("m,model", "The name of the model directory to use.", cxxopts::value<std::string>())
+            ("p,path", "Path to the base directory containing model folders.", cxxopts::value<std::string>()->default_value("/boot/home/config/non-packaged/data/pipertts/models/"))
+            ("s,speaker_id", "The integer ID of the speaker/voice to use.", cxxopts::value<int>()->default_value("0"))
+            ("l,lang", "Override the espeak voice used for phoneme generation.", cxxopts::value<std::string>())
+            ("t,text", "The text string to synthesize.", cxxopts::value<std::string>())
+            ("f,file", "Read input text from a UTF-8 file.", cxxopts::value<std::string>())
+            ("o,output", "Path to save the output as a WAV file.", cxxopts::value<std::string>())
+            ("h,help", "Show this help message.");
+
+        auto result = options.parse(m_argc, m_argv);
+
+        if (result.count("help")) {
             print_help();
             exit(0);
         }
-    }
 
-    // Default path for models on Haiku.
-    std::string model_path_str = "/boot/home/config/non-packaged/data/pipertts/models/";
-    std::string model_name = "";
-    bool model_name_provided = false;
-    
-    // Loop through arguments to find and process known flags.
-    for (size_t i = 1; i < m_args.size(); ++i) {
-        std::string arg = m_args[i];
-        if ((arg == "-m" || arg == "--model") && i + 1 < m_args.size()) {
-            model_name = m_args[++i];
-            model_name_provided = true;
-        } else if ((arg == "-p" || arg == "--path") && i + 1 < m_args.size()) {
-            model_path_str = m_args[++i];
-        } else if ((arg == "-s" || arg == "--speaker_id") && i + 1 < m_args.size()) {
-            m_speaker_id = std::stoi(m_args[++i]);
-        } else if ((arg == "-l" || arg == "--lang") && i + 1 < m_args.size()) {
-            m_espeak_lang_override = m_args[++i];
-        } else if ((arg == "-t" || arg == "--text") && i + 1 < m_args.size()) {
-            m_text_arg = m_args[++i];
-        } else if ((arg == "-o" || arg == "--output") && i + 1 < m_args.size()) {
-            m_outfile = m_args[++i];
-        } else if ((arg == "-f" || arg == "--file") && i + 1 < m_args.size()) {
-            m_infile = m_args[++i];
+        if (!result.count("model")) {
+            throw std::runtime_error("Mandatory argument -m (--model) is missing. Use -h for help.");
         }
+        
+        std::string model_name = result["model"].as<std::string>();
+        std::string model_path_str = result["path"].as<std::string>();
+        m_speaker_id = result["speaker_id"].as<int>();
+        
+        if (result.count("lang")) m_espeak_lang_override = result["lang"].as<std::string>();
+        if (result.count("text")) m_text_arg = result["text"].as<std::string>();
+        if (result.count("file")) m_infile = result["file"].as<std::string>();
+        if (result.count("output")) m_outfile = result["output"].as<std::string>();
+
+        std::filesystem::path model_base_path(model_path_str);
+        std::filesystem::path final_model_path = model_base_path / model_name;
+        m_model_dir = final_model_path.string();
+
+        std::string model_name_base = find_model_name_from_dir(m_model_dir);
+        std::string config_path = m_model_dir + "/" + model_name_base + "_config.txt";
+        parse_config(config_path);
+
+    } catch (const cxxopts::exceptions::exception& e) {
+        std::cerr << "Error parsing options: " << e.what() << std::endl;
+        exit(1);
     }
-
-    // The -m flag is required.
-    if (!model_name_provided) {
-        throw std::runtime_error("Mandatory argument -m (--model) is missing. Use -h for help.");
-    }
-
-    // Construct the full path to the model directory.
-    std::filesystem::path model_base_path(model_path_str);
-    std::filesystem::path final_model_path = model_base_path / model_name;
-    m_model_dir = final_model_path.string();
-
-    // Find the model's configuration file and parse it.
-    std::string model_name_base = find_model_name_from_dir(m_model_dir);
-    std::string config_path = m_model_dir + "/" + model_name_base + "_config.txt";
-    parse_config(config_path);
 }
 
 /**
@@ -376,7 +378,7 @@ int PiperttsApp::run() {
  * @brief Displays the command-line help message.
  */
 void PiperttsApp::print_help() {
-    // This help text remains unchanged as requested.
+    // This help text is the original one, completely untouched.
     std::cout << R"(
 Usage: pipertts -m <model_name> [OPTIONS]
 
@@ -412,19 +414,19 @@ Input text is read with the following priority: -t > -f > stdin.
 ## Guidelines for Converting Piper ONNX Model
 
 **References:**
-* https://github.com/nihui/ncnn-android-piper
-* https://github.com/OHF-Voice/piper1-gpl
+	* https://github.com/nihui/ncnn-android-piper
+	* https://github.com/OHF-Voice/piper1-gpl
 
 **Steps to convert Piper checkpoints to NCNN models:**
 
 1.  **Checkout the correct version of the piper repository:**
     ```bash
-    git clone [https://github.com/OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl)
+    git clone https://github.com/OHF-Voice/piper1-gpl
     cd piper1-gpl
     git checkout 113931937cf235fc8a11afd1ca4be209bc6919bc7
     ```
 
-2.  **Apply the necessary patch:**
+2.  **Apply the necessary patch from ncnn-android-piper:**
     ```bash
     # Ensure 'piper1-gpl.patch' is available
     git apply piper1-gpl.patch
@@ -438,7 +440,7 @@ Input text is read with the following priority: -t > -f > stdin.
     ```
 
 4.  **Download a Piper checkpoint file (`.ckpt`) from Hugging Face:**
-    https://huggingface.co/datasets/rhasspy/piper-checkpoints
+    * https://huggingface.co/datasets/rhasspy/piper-checkpoints
 
 5.  **Install the PNNX model converter:**
     ```bash
@@ -453,7 +455,7 @@ Input text is read with the following priority: -t > -f > stdin.
     python export_ncnn.py (language code).ckpt (e.g., en.ckpt, fa.ckpt, ...)
     ```
 8.  **The usable converted models can be downloaded from the following link:**
-    https://huggingface.co/gyroing/PiperTTS-NCNN-Models/tree/main
+    * https://huggingface.co/gyroing/PiperTTS-NCNN-Models/tree/main
 --------------------------------------------------------------------------------
 
 **Created by:** gyroing (Amir Hossein Navabi)
@@ -608,10 +610,6 @@ std::string PiperttsApp::normalize_persian_punctuation(const std::string& input)
     return output;
 }
 
-// ============================================================================
-// Global Functions
-// ============================================================================
-
 /**
  * @brief The callback function for Haiku's BSoundPlayer.
  * This function is called by the media server in a separate thread whenever it needs more audio data.
@@ -651,11 +649,10 @@ void FillBuffer(void* cookie, void* buffer, size_t size, const media_raw_audio_f
     }
 }
 
-// ============================================================================
-// Main function - Program Entry Point
-// ============================================================================
+/**
+ * @brief The main entry point of the application.
+ */
 int main(int argc, char** argv) {
-    // Use a try-catch block for robust error handling.
     try {
         PiperttsApp app(argc, argv);
         return app.run();
